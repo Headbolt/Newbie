@@ -187,6 +187,7 @@ SectionEnd
 /bin/echo 'Running Command "sudo rm -rf $NewBinary # Cleanup by removing installer"'
 /bin/echo # Outputting a Blank Line for Reporting Purposes
 sudo rm -rf $NewBinary # Cleanup by removing installer
+SectionEnd
 #
 ExitCode=0
 ScriptEnd
