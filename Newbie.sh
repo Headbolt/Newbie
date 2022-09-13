@@ -4,63 +4,38 @@
 #
 # ABOUT THIS PROGRAM
 #
-#	Newbie.sh
-#	https://github.com/Headbolt/Newbie
+#	ZScaler-Install.sh
+#	https://github.com/Headbolt/ZScaler-Install
 #
-#   This Script is designed for use in JAMF
+#   This Script is designed for use in JAMF and was designed to Download a specified version of the ZScalercheck installer and install it
 #
-#   - This script will ...
-#			Create an account, with a Secure Token
-#
-#     A Pair of JAMF policies are required to accompany this script.
-#       Policy 1 Is needed to reset the JAMF Management account password to something known
-#       Policy 2 Is needed to reset the JAMF Management account password to an unknown complex password
-#       Each policy needs its own specific custom trigger, that will be required in this script.
+#	The Following Variables should be defined
+#	Variable 4 - Named "Download URL for Client Connector - eg. https://d32a6ru7mhaq0c.cloudfront.net/Zscaler-osx-3.6.1.19-installer.app.zip"
+#	Variable 5 - Named "Cloud Name - eg. ZCloud"
+#	Variable 6 - Named "User Domain - eg. domain.com - OPTIONAL"
 #
 ###############################################################################################################################################
 #
 # HISTORY
 #
-#	Version: 1.2 - 21/06/2022
+#   Version: 1.0 - 13/09/2022
 #
-#   - 15/04/2018 - V1.0 - Created by Headbolt
-#
-#   - 21/10/2019 - V1.1 - Updated by Headbolt
-#							More comprehensive error checking and notation
-#
-#   - 21/06/2022 - V1.2 - Updated by Headbolt
-#							Minor Tidying
+#   - 13/09/2022 - V1.0 - Created by Headbolt, by adapting and improving script by Niladri Datta @ ZScaler 
+#							https://community.zscaler.com/t/guide-zscaler-client-connector-deployment-with-jamf-pro-for-macos/16264
 #
 ###############################################################################################################################################
 #
-# DEFINE VARIABLES & READ IN PARAMETERS
+#   DEFINE VARIABLES & READ IN PARAMETERS
 #
 ###############################################################################################################################################
 #
-User="${4}" # Grab the username for the user we want to create from JAMF variable #4 eg. username
-Pass="${5}" # Grab the password for the user we want to create from JAMF variable #5 eg. password
-FV2="${6}" # Grab the option of whether to enable this user for FileVault from JAMF variable #6 eg. YES / NO
-Options="${7}" # Grab the options to set for this user from JAMF variable #7 eg. -UID 81 -admin -shell /usr/bin/false -home /private/var/VAULT
-adminUser="${8}" # Grab the username for the admin user we will use to change the password from JAMF variable #8 eg. username
-adminPass="${9}" # Grab the password for the admin user we will use to change the password from JAMF variable #9 eg. password
+DownloadURL=$4 # Grab the Download URL for the installer from JAMF variable #4 eg. https://d32a6ru7mhaq0c.cloudfront.net/Zscaler-osx-3.6.1.19-installer.app.zip
+CloudName=$5
+UserDomain=$6
 #
-MANAGEMENT="MANAGE" # Set the name of your usual JAMF Management Account Name eg. MANAGE
-ZTI="Enrollment" # Set the name of your usual Default Zero Touch Build Account eg. Enrollment
-FVadd="VAULT" # Set the name of your usual Default Filevault Admin eg. VAULT
+ScriptName="append prefix here as needed - Deploy - Z Scaler" # Set the name of the script for later logging
 #
-NonCOMP="JAMF-NonComplex" # Set the Trigger Name of your Policy to set the JAMF Management Account
-# to a Known Password incase it is used for the Admin User from Variable #8 eg. JAMF-NonComplex
-#
-COMP="JAMF-Complex" # Set the Trigger Name of your Policy to set the JAMF Management Account to an
-# unknown complex Password incase it is used for the Admin User from Variable #9 eg. JAMF-Complex
-#
-os_ver=$(sw_vers -productVersion) # Grab the OS Version
-IFS='.' read -r -a ver <<< "$os_ver" # Process the OS Version
-fdestatus=$(sudo fdesetup status | grep "FileVault is" | awk '{print $3}' | tr -d .) # Check if FileVault is on or Not
-#
-ScriptName="append prefix here as needed - FV2 - Create Local Account" # Set the name of the script for later logging
-#
-####################################################################################################
+###############################################################################################################################################
 #
 #   Checking and Setting Variables Complete
 #
@@ -74,85 +49,52 @@ ScriptName="append prefix here as needed - FV2 - Create Local Account" # Set the
 #
 ###############################################################################################################################################
 #
-# Initial Check Function
+# Variable Check Function
 #
-Check(){
+VarCheck(){
 #
-# Function to grab information about all relevant accounts and display them for Reporting
+/bin/echo 'Checking that the required Variables are set' # Check that the required variables are set
+/bin/echo # Outputting a Blank Line for Reporting Purposes
 #
-if [[ "${ver[1]}" -ge 13 ]]
+if [ "${DownloadURL}" == "" ]
 	then
-		AdminCreds="-adminUser $adminUser -adminPassword $adminPass"
-		/bin/echo "Processing, incorporating Secure Token as OS Version is $os_ver"
-		/bin/echo # Outputs a blank line for reporting purposes
-		/bin/echo "Grabbing Secure Token Status for $MANAGEMENT Account"
-		JAMFstatus=$(sysadminctl -secureTokenStatus jamf 2>&1)
-		JAMFtoken=$(echo $JAMFstatus | awk '{print $7}')
-		/bin/echo "JAMF secureTokenStatus = $JAMFtoken"
-		/bin/echo # Outputs a blank line for reporting purposes
-		#
-        if [ "${FVadd}" != "${User}" ]
-			then
-				/bin/echo "Grabbing Secure Token Status for $FVadd Account"
-				#
-				FVaddStatus=$(sysadminctl -secureTokenStatus $FVadd 2>&1)
-				FVaddToken=$(echo $CRYPTOstatus | awk '{print $7}')
-				#
-				/bin/echo "$FVadd secureTokenStatus = $FVaddToken"
-				/bin/echo # Outputs a blank line for reporting purposes
-		fi
-		# 
-		/bin/echo "Grabbing Secure Token Status for $User Account"
-		#
-		NewUserStatus=$(sysadminctl -secureTokenStatus $User 2>&1)
-		NewUserToken=$(echo $NewUserStatus | awk '{print $7}')
-		#
-		/bin/echo "$User secureTokenStatus = $NewUserToken"
+		/bin/echo 'DownloadURL undefined.  Please pass the DownloadURL in parameter 4'
+        ExitCode=4
 		SectionEnd
-		#
-		if [ "${adminUser}" != "${ZTI}" ]
-			then
-				if [ "${adminUser}" == "${MANAGEMENT}" ]
-					then
-						FileSystem=$(diskutil info / | grep "File System Personality" | cut -c 30-)
-						#
-						if [ ${FileSystem} = "APFS" ]
-							then
-								#
-								if [ $JAMFtoken != "ENABLED" ]
-									then
-										/bin/echo "Management Account Has No Secure Token"
-										/bin/echo "Cannot Continue"
-										SectionEnd
-										ScriptEnd
-										#
-										exit 1
-								else
-									/bin/echo "File System is not APFS"
-									/bin/echo "Ignoring Tokens"
-									/bin/echo # Outputs a blank line for reporting purposes
-								fi
-						fi
-				fi
-				#
-				if [ "${adminUser}" == "${FVadd}" ]
-					then
-						if [ $FVaddToken != "ENABLED" ]
-							then
-								/bin/echo "$FVadd Account Has No Secure Token"
-								/bin/echo "Cannot Continue"
-								#
-								SectionEnd
-								ScriptEnd
-								#                
-								exit 1
-						fi
-				fi
-		fi
-fi  
+		ScriptEnd
+	else
+    	/bin/echo 'DownloadURL Defined as '"$DownloadURL"''
+fi
+#
+/bin/echo # Outputting a Blank Line for Reporting Purposes
+if [ "${CloudName}" == "" ]
+	then
+		/bin/echo 'CloudName undefined.  Please pass the CloudName in parameter 5'
+    	ExitCode=4
+        SectionEnd
+    	ScriptEnd
+	else
+		/bin/echo 'CloudName Defined as '"$CloudName"''
+
+fi
+#
+/bin/echo # Outputting a Blank Line for Reporting Purposes
+if [ "${UserDomain}" == "" ]
+	then
+		/bin/echo 'UserDomain undefined, this is not required.'
+		/bin/echo 'Proceeding with User Domain empty, if this is requred please pass the UserDomain in parameter 6'
+		UserDomainSetting=""
+	else
+		UserDomainSetting="--userDomain $UserDomain"
+		/bin/echo 'UserDomain Defined as '"$UserDomain"''
+fi
+#
+/bin/echo # Outputting a Blank Line for Reporting Purposes
+/bin/echo Required Variables appear to be set
 #
 }
 #
+
 ###############################################################################################################################################
 #
 # Section End Function
@@ -170,11 +112,13 @@ SectionEnd(){
 # Script End Function
 #
 ScriptEnd(){
-#/bin/echo # Outputting a Blank Line for Reporting Purposes
+#
 /bin/echo Ending Script '"'$ScriptName'"'
 /bin/echo # Outputting a Blank Line for Reporting Purposes
 /bin/echo  ----------------------------------------------- # Outputting a Dotted Line for Reporting Purposes
 /bin/echo # Outputting a Blank Line for Reporting Purposes
+#
+exit $ExitCode
 #
 }
 #
@@ -186,109 +130,63 @@ ScriptEnd(){
 # 
 # Begin Processing
 #
-####################################################################################################
+###############################################################################################################################################
 #
-/bin/echo # Outputs a blank line for reporting purposes
+/bin/echo # Outputting a Blank Line for Reporting Purposes
 SectionEnd
 #
-Check
-#                
-if [[ "${ver[1]}" -lt 13 ]]
-	then
-		#
-		AdminCreds=""
-		/bin/echo # Outputs a blank line for reporting purposes
-		/bin/echo "Processing without incorporating Secure Token as OS Version is $os_ver"
-		SectionEnd
-fi
-#
-if [ "${adminUser}" == "${MANAGEMENT}" ]
-	then
-		#
-		/bin/echo "Triggering Policy to set JAMF Management to a known non-complex Password"
-		/bin/echo # Outputs a blank line for reporting purposes
-		sudo /usr/local/bin/jamf policy -trigger $NonCOMP
-		SectionEnd
-fi
-#    
-/bin/echo "Creating $User Account"
-/bin/echo "with the options $Options"
-/bin/echo # Outputs a blank line for reporting purposes
-sudo sysadminctl "$AdminCreds" -addUser "$User" -fullName "$User" -password "$Pass" "$Options"
-#
+VarCheck
 SectionEnd
 #
-if [[ "${ver[1]}" -ge 13 ]]
+/bin/echo "`date` - Check for Existence of Pre_Existing Zscaler.zip"
+if test -f /tmp/zscaler.zip
 	then
-		/bin/echo "Re-Checking Secure Token Status for $User Account"
-		NewUserStatus=$(sysadminctl -secureTokenStatus $User 2>&1)
-		NewUserToken=$(echo $NewUserStatus | awk '{print $7}')
-		#
-		/bin/echo "$User secureTokenStatus = $NewUserToken"
-		SectionEnd
+		/bin/echo "`date` - /tmp/zscaler.zip Exists !!"
+		/bin/echo "`date` - Deleting /tmp/zscaler.zip"
+		sudo rm -rf /tmp/zscaler.zip # Cleanup by existing downloaded archive
+        /bin/echo # Outputting a Blank Line for Reporting Purposes
 fi
 #
-if [ "${FV2}" == "YES" ]
-	then
-		if [ "${fdestatus}" == "On" ]
-			then
-				if [[ "${ver[1]}" -lt 13 ]]
-					then
-						/bin/echo # Outputs a blank line for reporting purposes
-						/bin/echo "Adding $User to FV2"
-						/bin/echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Username</key><string>'$adminUser'</string><key>Password</key><string>'$adminPass'</string><key>AdditionalUsers</key><array><dict><key>Username</key><string>'$User'</string><key>Password</key><string>'$Pass'</string></dict></array></dict></plist>' | fdesetup add -inputplist
-						#
-						/bin/echo # Outputs a blank line for reporting purposes
-						/bin/echo "Checking Filevault Status of User $User"
-						/bin/echo # Outputs a blank line for reporting purposes
-						#
-						if [ "$(fdesetup list | grep -ic "^${User},")" -eq '0' ]
-							then
-								/bin/echo "User $User is not FileVault Enabled"
-							else
-								/bin/echo "User $User is FileVault Enabled"
-						fi
-						SectionEnd
-				fi
-			else
-				/bin/echo "Option to Enable User $User for FileVault Is Selected"
-				/bin/echo "but FileVault is not Enabled"
-				SectionEnd
-		fi
-fi
-#	
-if [ "${adminUser}" == "${MANAGEMENT}" ] # TEST
-	then
-		#
-		/bin/echo "Triggering Policy to reset $MANAGEMENT account to an unknown complex Password"
-		/bin/echo # Outputs a blank line for reporting purposes
-		sudo /usr/local/bin/jamf policy -trigger $COMP
-		SectionEnd
-fi
+/bin/echo "`date` - Downloading Requested Version Of Zscaler"
+/bin/echo 'Running Command "curl -L -s -k -o  /tmp/zscaler.zip '$DownloadURL' || { /bin/echo ; /bin/echo "`date` Download failed. Exiting" >&2; ExitCode=1; SectionEnd; ScriptEnd; }"'
+/bin/echo # Outputting a Blank Line for Reporting Purposes
+curl -L -s -k -o  /tmp/zscaler.zip $DownloadURL || { /bin/echo ; /bin/echo "`date` Download failed. Exiting" >&2; ExitCode=1 ;SectionEnd; ScriptEnd; } # Download client zip archive to /tmp
+SectionEnd
 #
-if [ "${FV2}" == "YES" ]
-	then
-		if [ "${fdestatus}" == "On" ]
-			then
-				if [[ "${ver[1]}" -ge 13 ]]
-					then
-						/bin/echo # Outputs a blank line for reporting purposes
-						echo "Re-Checking Secure Token Status for $FVadd Account"
-						FVaddStatus=$(sysadminctl -secureTokenStatus $FVadd 2>&1)
-						FVaddToken=$(echo $FVaddStatus | awk '{print $7}')
-						/bin/echo # Outputs a blank line for reporting purposes
-						/bin/echo "JAMF secureTokenStatus = $FVaddToken"
-						/bin/echo # Outputs a blank line for reporting purposes
-						/bin/echo "Re-Checking Secure Token Status for $FVadd Account"
-						#
-						FVaddStatus=$(sysadminctl -secureTokenStatus $FVadd 2>&1)
-						FVaddToken=$(echo $FVaddStatus | awk '{print $7}')
-						#
-						/bin/echo # Outputs a blank line for reporting purposes
-						/bin/echo "$FVadd secureTokenStatus = $FVaddToken"
-						SectionEnd
-				fi
-		fi
-fi
+PreExistingBinary='' # Ensuring Variable is blank before checks
+PreExistingBinary=$(ls /private/tmp | grep "Zscaler-osx") # Get the installer string
+/bin/echo "`date` - Check for Existence of Pre_Existing $PreExistingBinary"
 #
+if [[ $PreExistingBinary != "" ]]
+	then
+		/bin/echo "`date` - $PreExistingBinary Exists !!"
+		/bin/echo "`date` - Deleting $PreExistingBinary"
+		sudo rm -rf /private/tmp/$PreExistingBinary # Cleanup by existing installer
+        /bin/echo # Outputting a Blank Line for Reporting Purposes
+fi
+cd /tmp # Change to Temp folder for file operations
+/bin/echo "`date` - Unzipping Zscaler Files"
+/bin/echo 'Running Command "sudo unzip -q zscaler.zip || { /bin/echo ;/bin/echo "`date` Cannot decompress dad archive. Exiting" >&2; ExitCode=2; SectionEnd; ScriptEnd; }"'
+sudo unzip -q zscaler.zip || { /bin/echo ;/bin/echo "`date` Cannot decompress dad archive. Exiting" >&2; ExitCode=2; SectionEnd; ScriptEnd; } # Unzip Zip into /private/tmp/
+/bin/echo # Outputting a Blank Line for Reporting Purposes
+/bin/echo "`date` - Removing Zscaler .Zip Download"
+/bin/echo /bin/echo 'Running Command "sudo rm -rf zscaler.zip"'
+/bin/echo # Outputting a Blank Line for Reporting Purposes
+sudo rm -rf zscaler.zip # Cleanup by removing downloaded archive
+SectionEnd
+#
+NewBinary=$(ls /tmp | grep "Zscaler-osx") # Get the installer string
+/bin/echo "`date` installing Zscaler"
+# Execute the install script. Add additional install options if needed.
+/bin/echo 'Running Command "sudo sh /tmp/$NewBinary/Contents/MacOS/installbuilder.sh --cloudName '$CloudName' --unattendedmodeui none '$UserDomainSetting' --mode unattended || { /bin/echo ;/bin/echo "`date` Client Connector install failed. Exiting" >&2;  ExitCode=3; SectionEnd; ScriptEnd; }"'
+/bin/echo # Outputting a Blank Line for Reporting Purposes
+sudo sh /tmp/$NewBinary/Contents/MacOS/installbuilder.sh --cloudName $CloudName --unattendedmodeui none $UserDomainSetting --mode unattended || { /bin/echo ;/bin/echo "`date` Client Connector install failed. Exiting" >&2;  ExitCode=3; SectionEnd; ScriptEnd; }
+SectionEnd
+#
+/bin/echo "`date` - Removing Zscaler Installer"
+/bin/echo 'Running Command "sudo rm -rf $NewBinary # Cleanup by removing installer"'
+/bin/echo # Outputting a Blank Line for Reporting Purposes
+sudo rm -rf $NewBinary # Cleanup by removing installer
+#
+ExitCode=0
 ScriptEnd
